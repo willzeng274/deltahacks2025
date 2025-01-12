@@ -4,6 +4,7 @@ from bson import Binary, ObjectId
 from dotenv import load_dotenv
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from pydantic import BaseModel
 from mongo import MongoDatabase, serialize_mongo_document
 import json
 from sauce import FaceRecognitionSystem
@@ -12,8 +13,6 @@ from pymongo import MongoClient
 import asyncio
 from openai import AsyncOpenAI
 
-# client = AsyncOpenAI()
-
 # includes recognize person, create person, validate answers, and update answer
 router = APIRouter()
 
@@ -21,6 +20,7 @@ router = APIRouter()
 
 load_dotenv()
 
+ai_client = AsyncOpenAI()
 uri = os.getenv("MONGODB_URI")
 
 client = MongoClient(uri)
@@ -178,12 +178,17 @@ async def win_person(person_id: str):
     await db.increment_person_wins(person_id)
     return {"message": "Person wins incremented"}
 
-@router.get("/person/{person_id}/validate_answer")
+class AnswerRequest(BaseModel):
+    question_index: int
+    answer: str
+
+@router.post("/person/{person_id}/validate_answer")
 async def validate_answer(
     person_id: str,
-    question_index: int,
-    answer: str,
+    answer_request: AnswerRequest
 ):
+    question_index = answer_request.question_index
+    answer = answer_request.answer
     try:
         ObjectId(person_id)
     except:
@@ -196,9 +201,9 @@ async def validate_answer(
         # use open ai to validate answer
 
         system_prompt = "You are a helpful assistant. Your task is to evaluate if the answer is correct, given the correct answer and user's answer.\nYou must answer 'true' or 'false'"
-        user_prompt = f"Correct answer: {person["answers"][question_index]}\nUser's answer: {answer}\nIs the user's answer correct?"
+        user_prompt = f"Correct answer: {person["answers"][question_index]}\nUser's answer: {answer}\nIs the user's answer correct? Be leniant. For example, 'I am gluten-free' and 'gluten-free' are the same."
 
-        chat_completion = await client.chat.completions.create(
+        chat_completion = await ai_client.chat.completions.create(
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}

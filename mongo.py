@@ -67,6 +67,9 @@ class MongoDatabase:
             event = await self.db.events.find_one({"_id": person_data["eventId"]})
             if event:
                 answers = [""] * len(event["questions"])
+                for index, i in enumerate(person_data["answers"]):
+                    answers[index] = i
+
                 person_data["answers"] = answers
 
                 if embeddings:

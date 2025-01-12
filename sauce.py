@@ -46,7 +46,7 @@ class FaceRecognitionSystem:
             ]
         )
 
-        self.embeddings = embeddings
+        self.embeddings = embeddings or {}
 
         # Create embeddings directory if it doesn't exist
         # self.embeddings_dir = Path("embeddings")
@@ -153,8 +153,8 @@ class FaceRecognitionSystem:
                 if not ret:
                     break
 
-                # Only process every 20th frame
-                if frame_count % 20 == 0:
+                # Only process every 10th frame
+                if frame_count % 10 == 0:
                     iterations += 1
                     frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
