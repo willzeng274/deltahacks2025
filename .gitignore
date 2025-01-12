@@ -1,0 +1,10 @@
+.env
+
+# python stuff
+*.pyc
+*.pyo
+__pycache__/
+
+# conda stuff
+.env/
+.conda/
