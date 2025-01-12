@@ -111,6 +111,10 @@ class MongoDatabase:
     async def get_event(self, event_id):
         """Get an event by its ID."""
         return await self.db.events.find_one({"_id": ObjectId(event_id)})
+    
+    async def get_event_by_name(self, name):
+        """Get an event by its name."""
+        return await self.db.events.find_one({"name": name})
 
     async def get_people_by_event(self, event_id):
         """Get all people associated with a specific event."""
@@ -138,6 +142,13 @@ class MongoDatabase:
     async def get_all_events(self):
         """Get all events."""
         return [event async for event in self.db.events.find()]
+    
+    async def increment_person_wins(self, person_id):
+        """Increment the 'won' field of a person by 1."""
+        return await self.db.people.update_one(
+            {"_id": ObjectId(person_id)},
+            {"$inc": {"won": 1}},
+        )
 
 
 # utils
@@ -147,7 +158,11 @@ def serialize_mongo_document(doc):
     """Convert MongoDB documents with ObjectId to JSON-serializable format."""
     if not doc:
         return None
-    doc["_id"] = str(doc["_id"])  # Convert ObjectId to string
+    # doc["_id"] = str(doc["_id"])  # Convert ObjectId to string
+    # Convert the rest of the ObjectIDs to string
+    for key, value in doc.items():
+        if isinstance(value, ObjectId):
+            doc[key] = str(value)
     return doc
 
 

@@ -1,4 +1,5 @@
 # /api/events.py
+from bson import ObjectId
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from mongo import MongoDatabase, serialize_mongo_document
@@ -18,12 +19,23 @@ async def test():
 
 @router.get("/event/{event_id}")
 async def get_event(event_id: str):
+    try:
+        ObjectId(event_id)
+    except:
+        raise HTTPException(status_code=400, detail="Invalid eventId")
     db = MongoDatabase()
     event = await db.get_event(event_id)
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
     return serialize_mongo_document(event)
 
+@router.get("/event/name/{name}")
+async def get_event_by_name(name: str):
+    db = MongoDatabase()
+    event = await db.get_event_by_name(name)
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+    return serialize_mongo_document(event)
 
 class CreateEvent(BaseModel):
     name: str
@@ -39,6 +51,10 @@ async def create_event(event_data: CreateEvent):
 
 @router.delete("/event/{event_id}")
 async def delete_event(event_id: str):
+    try:
+        ObjectId(event_id)
+    except:
+        raise HTTPException(status_code=400, detail="Invalid eventId")
     db = MongoDatabase()
     result = await db.remove_event(event_id)
     if result:

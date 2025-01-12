@@ -8,3 +8,6 @@ __pycache__/
 # conda stuff
 .env/
 .conda/
+
+# cache
+haarcascade_frontalface_default.xml

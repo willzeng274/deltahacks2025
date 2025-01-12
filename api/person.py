@@ -1,81 +1,50 @@
 # /api/person.py
-from typing import List
+import os
 from bson import Binary, ObjectId
+from dotenv import load_dotenv
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
-from fastapi import FastAPI, WebSocket
-from pydantic import BaseModel
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from mongo import MongoDatabase, serialize_mongo_document
-from aiortc import RTCPeerConnection, RTCSessionDescription
-from aiortc.contrib.media import MediaRecorder
 import json
 from sauce import FaceRecognitionSystem
 import pickle
-import torch
+from pymongo import MongoClient
+import asyncio
+from openai import AsyncOpenAI
+
+# client = AsyncOpenAI()
 
 # includes recognize person, create person, validate answers, and update answer
 router = APIRouter()
 
+# get embeddings
+
+load_dotenv()
+
+uri = os.getenv("MONGODB_URI")
+
+client = MongoClient(uri)
+db = client["arihan"]
+
+embeddings_dict = {}
+people = db.people.find({})
+
+for person in people:
+    eb = pickle.loads(pickle.loads(bytes(person["embeddings"])))
+    embeddings_dict[str(person["_id"])] = eb
+
+face_system = FaceRecognitionSystem()
+
+print("All embeddings:", embeddings_dict)
 
 app = FastAPI()
-pcs = set()  # Keep track of active peer connections
-
-# Make a RTC route for video streaming and use FaceRecognitionSystem to recognize faces
-@router.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
-    await websocket.accept()
-    pc = RTCPeerConnection()
-    pcs.add(pc)
-    
-    face_system = FaceRecognitionSystem()
-    recorder = MediaRecorder("recording.mp4")
-
-    @pc.on("track")
-    async def on_track(track):
-        if track.kind == "video":
-            pc.addTrack(track)
-            recorder.addTrack(track)
-            await recorder.start()
-            
-            while True:
-                frame = await track.recv()
-
-                face_result = face_system.process_frame(frame)
-                if face_result:
-                    await websocket.send_json({
-                        "type": "face_detected",
-                        "data": face_result
-                    })
-
-    try:
-        while True:
-            data = await websocket.receive_text()
-            message = json.loads(data)
-            
-            if message["type"] == "offer":
-                offer = RTCSessionDescription(
-                    sdp=message["sdp"],
-                    type=message["type"]
-                )
-                await pc.setRemoteDescription(offer)
-                answer = await pc.createAnswer()
-                await pc.setLocalDescription(answer)
-                
-                await websocket.send_json({
-                    "type": "answer",
-                    "sdp": pc.localDescription.sdp
-                })
-                
-    except Exception as e:
-        print(f"Error: {e}")
-    finally:
-        pcs.discard(pc)
-        await recorder.stop()
-        await pc.close()
 
 @router.post("/recognize_person")
 async def recognize_person(
     eventId: str = Form(...),
     image: UploadFile = File(...),
+    # dependency for embeddings
+    # face_system: FaceRecognitionSystem = Depends(FaceRecognitionSystem)
 ):
     # validate that eventId is a valid ObjectId
     try:
@@ -83,28 +52,30 @@ async def recognize_person(
     except:
         raise HTTPException(status_code=400, detail="Invalid eventId")
     
-    db = MongoDatabase()
+    # removed all for performance
+    # db = MongoDatabase()
 
     # check if event exists
-    event = await db.get_event(eventId)
-    if not event:
-        raise HTTPException(status_code=404, detail="Event not found")
+    # event = await db.get_event(eventId)
+    # if not event:
+    #     raise HTTPException(status_code=404, detail="Event not found")
     
     # convert image to file to bytes
     # image_bytes = await image.read()
 
-    face_system = FaceRecognitionSystem()
+    # face_system = FaceRecognitionSystem()
 
-    face_system.embeddings = {}
+    # face_system.embeddings = {}
 
-    people = await db.get_people_by_event(eventId)
-    for person in people:
-        eb = pickle.loads(pickle.loads(bytes(person["embeddings"])))
-        print("Person:", person["name"], "Embeddings:", eb)
-        face_system.embeddings[str(person["_id"])] = eb
-        # print("Person:", person["name"], "Embeddings:", face_system.embeddings[str(person["_id"])])
+    # people = await db.get_people_by_event(eventId)
+    # for person in people:
+    #     eb = pickle.loads(pickle.loads(bytes(person["embeddings"])))
+    #     print("Person:", person["name"], "Embeddings:", eb)
+    #     face_system.embeddings[str(person["_id"])] = eb
+    #     # print("Person:", person["name"], "Embeddings:", face_system.embeddings[str(person["_id"])])
 
-    results = face_system.identify_person(image)
+    results = await asyncio.to_thread(face_system.identify_person, image.file.read())
+    # results = face_system.identify_person(image)
 
     print("Results:", results)
 
@@ -153,9 +124,10 @@ async def create_person(
     # convert video to file to bytes
     video_bytes = await video.read()
 
-    face_system = FaceRecognitionSystem()
+    # use a thread pool executor
 
-    pickle_outputs = face_system.process_uploaded_video(video_bytes, name)
+    # pickle_outputs = face_system.process_uploaded_video(video_bytes, name)
+    pickle_outputs = await asyncio.to_thread(face_system.process_uploaded_video, video_bytes, name)
 
     print("PICKLE OUTPUTS:", pickle_outputs)
 
@@ -166,16 +138,24 @@ async def create_person(
         "won": 0,
         "embeddings": Binary(pickle_outputs)
     })
+
+    face_system.embeddings[str(person.inserted_id)] = pickle.loads(pickle_outputs)
     return {"person_id": str(person.inserted_id)}
 
 # get user by id
 
 @router.get("/person/{person_id}")
 async def get_person(person_id: str):
+    try:
+        ObjectId(person_id)
+    except:
+        raise HTTPException(status_code=400, detail="Invalid person ID")
     db = MongoDatabase()
     person = await db.get_person(person_id)
     if not person:
         raise HTTPException(status_code=404, detail="Person not found")
+    # print("Serialized person:", serialize_mongo_document(person))
+    del person["embeddings"]
     return serialize_mongo_document(person)
 
 # get user by name
@@ -185,4 +165,79 @@ async def get_person_by_name(name: str):
     person = await db.get_person_by_name(name)
     if not person:
         raise HTTPException(status_code=404, detail="Person not found")
+    del person["embeddings"]
     return serialize_mongo_document(person)
+
+@router.get("/person/{person_id}/win")
+async def win_person(person_id: str):
+    try:
+        ObjectId(person_id)
+    except:
+        raise HTTPException(status_code=400, detail="Invalid person ID")
+    db = MongoDatabase()
+    await db.increment_person_wins(person_id)
+    return {"message": "Person wins incremented"}
+
+@router.get("/person/{person_id}/validate_answer")
+async def validate_answer(
+    person_id: str,
+    question_index: int,
+    answer: str,
+):
+    try:
+        ObjectId(person_id)
+    except:
+        raise HTTPException(status_code=400, detail="Invalid person ID")
+    db = MongoDatabase()
+    person = await db.get_person(person_id)
+    if not person:
+        raise HTTPException(status_code=404, detail="Person not found")
+    if 0 <= question_index < len(person["answers"]):
+        # use open ai to validate answer
+
+        system_prompt = "You are a helpful assistant. Your task is to evaluate if the answer is correct, given the correct answer and user's answer.\nYou must answer 'true' or 'false'"
+        user_prompt = f"Correct answer: {person["answers"][question_index]}\nUser's answer: {answer}\nIs the user's answer correct?"
+
+        chat_completion = await client.chat.completions.create(
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            model="gpt-4o",
+            max_tokens=10,
+            temperature=0.0
+        )
+
+            # Extract the response and return a boolean based on its content
+        answer = chat_completion.choices[0].message.content.lower().strip()
+
+        return answer in ['true', 'yes']
+    raise HTTPException(status_code=400, detail="Invalid question index.")
+
+active_connections: list[WebSocket] = []
+
+@router.websocket("/stream")
+async def websocket_endpoint(websocket: WebSocket):
+    # Accept connection
+    await websocket.accept()
+    active_connections.append(websocket)
+    try:
+        while True:
+            # Receive the frame from Unity WebSocket (JPEG image bytes)
+            frame_data = await websocket.receive_bytes()
+            # You can process the frame here, such as performing classification or saving it.
+            # For simplicity, we're just logging the frame size.
+            print(f"Received frame of size: {len(frame_data)} bytes")
+
+            results = await asyncio.to_thread(face_system.identify_person, frame_data)
+
+            await websocket.send_text(json.dumps(results))
+    except WebSocketDisconnect:
+        active_connections.remove(websocket)
+        print("Client disconnected")
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    # Clean up on shutdown
+    for connection in active_connections:
+        await connection.close()
