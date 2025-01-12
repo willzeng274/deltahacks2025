@@ -126,6 +126,14 @@ class MongoDatabase:
             embeddings = pickle.loads(person["embeddings"])
             return embeddings
         return None
+    
+    async def get_person(self, person_id):
+        """Get a person by their ID."""
+        return await self.db.people.find_one({"_id": ObjectId(person_id)})
+    
+    async def get_person_by_name(self, name):
+        """Get a person by their name."""
+        return await self.db.people.find_one({"name": name})
 
     async def get_all_events(self):
         """Get all events."""
