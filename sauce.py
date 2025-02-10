@@ -16,7 +16,6 @@ class FaceRecognitionSystem:
         # device = torch.device("mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu")
         device = torch.device("cpu")
         print("Using device:", device)
-        # Set random seed for reproducibility
         torch.manual_seed(42)
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
@@ -48,11 +47,9 @@ class FaceRecognitionSystem:
 
         self.embeddings = embeddings or {}
 
-        # Create embeddings directory if it doesn't exist
         # self.embeddings_dir = Path("embeddings")
         # self.embeddings_dir.mkdir(exist_ok=True)
 
-        # Load all existing embeddings
         # self.embeddings = self.load_all_embeddings()
 
     def identify_person(self, uploaded_file: bytes, threshold=0.6):
@@ -194,12 +191,9 @@ class FaceRecognitionSystem:
         if embeddings:
             final_embedding = torch.stack(embeddings).median(dim=0)[0]
             data = pickle.dumps(final_embedding)
-            print(
-                f"Here's the pickle for {person_name} - store it wherever the heck you want."
-            )
             return data
         else:
-            print("You got no embeddings, so here's None.")
+            print("Warning: No embeddings.")
 
     # use .pkl file to save the embedding
     # def load_all_embeddings(self):
